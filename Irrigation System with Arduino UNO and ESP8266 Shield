@@ -1,0 +1,153 @@
+/* Fill-in information from Blynk Device Info here */
+#define BLYNK_TEMPLATE_ID "XXXX"
+#define BLYNK_TEMPLATE_NAME "XXXX"
+#define BLYNK_AUTH_TOKEN "XXXX"
+
+/* Comment this out to disable prints and save space */
+#define BLYNK_PRINT Serial
+
+#include <ESP8266_Lib.h>
+#include <BlynkSimpleShieldEsp8266.h>
+
+char ssid[] = "XXXX";           // Enter your WIFI name
+char pass[] = "XXXX";                           // Enter your WIFI password
+
+#include <SoftwareSerial.h>
+SoftwareSerial EspSerial(2, 3); // RX, TX
+
+#define ESP8266_BAUD 9600
+ESP8266 wifi(&EspSerial);
+
+#include "DHT.h"
+#include <LiquidCrystal.h>
+
+#define DHTPIN  7
+#define DHTTYPE DHT11
+
+DHT dht(DHTPIN, DHTTYPE);
+
+float t, h;
+
+int pinValue1; // MOTOR kontrolü Blynk üzerinden
+int sol;       // toprak nem sensörü
+int Soil_water;
+
+LiquidCrystal lcd(8, 9, 10, 11, 12, 13); // RS, E, D4, D5, D6, D7
+
+// Pin definition
+int IN1 = 4;
+int IN2 = 5;
+
+BlynkTimer timer;
+
+void setup()
+{ 
+  Serial.begin(9600);
+
+  EspSerial.begin(ESP8266_BAUD);
+  delay(10);
+
+  Blynk.begin(BLYNK_AUTH_TOKEN, wifi, ssid, pass, "blynk.cloud", 80);
+  
+  lcd.begin(16, 2); // 16x2 LCD'yi başlat
+  delay(100);
+  dht.begin();
+
+  pinMode(IN1, OUTPUT); // Motor çıkışı IN1
+  pinMode(IN2, OUTPUT); // Motor çıkışı IN2
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Plant Monitoring");
+  delay(500);
+  lcd.clear();
+  
+  timer.setInterval(1000L, soilsensor);
+  timer.setInterval(1000L, dht11);
+  timer.setInterval(1000L, motorControl);
+}
+
+void loop() 
+{
+  Blynk.run();
+  timer.run(); // SimpleTimer'ı başlatır
+}
+
+void soilsensor()
+{ 
+  sol = analogRead(A0);
+  sol = map(sol, 0, 1023, 100, 0);
+  Blynk.virtualWrite(V7, sol); // Nem verisini Blynk'e gönder
+  Serial.println(sol);
+  
+  if (sol < 50) {
+    Blynk.logEvent("low_soil_moisture");
+    Soil_water=1;
+  }
+
+  else if (sol >= 50) {
+    Blynk.logEvent("high_soil_moisture");
+    Soil_water=0;
+  }
+
+  lcd.setCursor(8, 1);
+  lcd.print("S:");
+  lcd.print(sol);
+  lcd.print(" ");
+  delay(500); // 500 ms delay between updates
+}
+
+void dht11()
+{
+  h = dht.readHumidity();
+  t = dht.readTemperature();  
+  Blynk.virtualWrite(V6, h);
+  Blynk.virtualWrite(V5, t);
+  Serial.println(h);
+  Serial.println(t);
+  if (t > 45)
+  {
+   Blynk.logEvent("high_temperature");
+  }
+  if (t < 10 )
+  {
+   Blynk.logEvent("low_temperature");
+  }  
+  lcd.setCursor(0, 0);
+  lcd.print("T:");
+  lcd.print(t);
+
+  lcd.setCursor(8, 0);
+  lcd.print("H:");
+  lcd.print(h);
+  delay(500); // 500 ms delay between updates
+}
+
+BLYNK_WRITE(V10){  // Blynk üzerinden motor kontrolü
+  pinValue1 = param.asInt();
+  delay(50);
+  if(pinValue1 == 1) {
+    motorControl();
+  } else {
+    stopMotor();
+  }
+}
+
+void motorControl()
+{
+  if (pinValue1 == 1 || Soil_water == 1) {
+    Serial.println("Pomp");
+    runMotor();
+  } else {
+    stopMotor();
+  }
+}
+
+void stopMotor()
+{
+  digitalWrite(4, LOW);  // IN1
+  digitalWrite(5, LOW);   // IN2
+}
+void runMotor(){
+  digitalWrite(4, HIGH);  // IN1
+  digitalWrite(5, LOW);   // IN2
+}
